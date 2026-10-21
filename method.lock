@@ -1,0 +1,21 @@
+{
+ "algorithm": "sha256",
+ "files": {
+  "method/METHOD_CHANGELOG.md": "93b6a42cc1f791ae47766c81c1dab1e8a1991b443b529e099a7608e3deb98583",
+  "method/STATISTIK.md": "10c49b913f797f6d623493c198f95893c956d3c3e043392882a7b50e36b3d582",
+  "method/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "method/build_gazetteer.py": "6fa01dd8651562794bc447a7816a64ee15c1ab91935bebc3841d480d7c15fe22",
+  "method/config.py": "033567a5c2e346ee5a7b535baf59f022bcce8f04ac66004289d8ddf5481ecbbb",
+  "method/gazetteer.json": "8a39c4f0c1af0c0329de884223c1e470a16e3d84deba53d8e94d4df031207cc3",
+  "method/jury_prompt.md": "a311907a2166777c526381dbab95f9a41f14bae9e7ee1df6fddc3a944b9f04f5",
+  "method/lagprovet.py": "118ac7d5c8d7a6ef492a0b3c7940be551bf35594f9cd38bb025e3751733dad26",
+  "method/method.yaml": "dfbef1302782414902e90bbec464bc40e941d5279294d07a9692a7fde95e43a6",
+  "method/metrics.py": "c74d5cacec3973b9dd6edfb9abb38f6ff32f72c23de953ee38c3cf34ec155ef3",
+  "method/miniyaml.py": "cf8b9765f897b5997a4a29682af29af8edfa9a3e0873eac7e36c4598964d1601",
+  "method/scoring.py": "ea1da52fc5ed33a3cc5ef3b5388075d2e046a0a5b051a6b469b15f665fe4ab70",
+  "method/sparrlista.py": "21682cb36bfb7a5ba41981dce814368a8404c49e406d71ba1340c05cffacd8f3",
+  "method/sprakprovet.py": "fdfe84ad5e039cc449cd575b23028288f895d842fcd63720153c35e1c517f786",
+  "method/stats.py": "bab403c848523557931d95f978961be6601222197b798f7efa40ef938de92b5b"
+ },
+ "method_hash": "f194755a4781136c4626d0529e14aa12ae5c328e611da80557c5483f0bc296e4"
+}

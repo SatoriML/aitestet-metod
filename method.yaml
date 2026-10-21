@@ -1,0 +1,878 @@
+# Metod 1.0, maskinläsbar form av METOD.md (delen Sverige: svensk faktakunskap och påhitt; delen Detaljer i lagprovet nedan; språkunderlaget i subtests).
+# Allt under method/ hashas i låsfilen method.lock. Inget här får ändras utan ett nytt metodversionsnummer.
+# Filen skrivs medvetet med ASCII-svenska (inga a-ringar eller umlaut) i nycklar och brodtext sa att diffar och hashar
+# inte paverkas av kodning (undantag: datavarden som hedge_markers, unit_conflicts och systemprompten ar UTF-8, riktig svenska, liksom kommentarer och text som skrivits eller rattats sedan 2026-10-14); utfallsnamnen mappas till Ratt/Avstar/pahitt osv i method/config.py.
+# Texten i METOD.md gäller om den och denna fil skiljer sig åt; avvikelser ska anmälas, inte tystas.
+
+method_version: "1.0.0-dev"
+status: locked                 # låst 2026-10-21 (metodägarens beslut); låsfilens hash publiceras före huvudkörningen av Detaljer. Tidigare: development
+
+# ---------------------------------------------------------------------------------------------
+# Slutligt svar (metodägarens beslut 2026-10-14, ersatte det oppna beslutet strict | last_line):
+#   marker_line = alla modeller instrueras att avsluta med en sista rad "Svar: <svar>". BARA den raden ratas.
+#                 Giltig markorrad = den sista icke-tomma raden har formen "Svar: <text>" (gemener/versaler, markdown runt raden
+#                 godtas, text efter kolonet ska innehalla minst ett ord). Saknas giltig markorrad ratas hela svaret enligt
+#                 strict-trappan OCH svaret raknas som formatbrott (metriken formatbrott, redovisas for ALLA modeller).
+#   strict      = hela svarstexten ratas bokstavligt (flera kandidater dar nagon ar fel = Fel). Alternativ i kanslighetsanalys.
+#   last_line   = sista icke-tomma raden ratas (finns kvar for G5-tester, anvands inte i huvudanalysen).
+# Systemprompternas ordalydelse (lägena A, A2 och B under modes) är godkänd av metodägaren 2026-10-15 och 2026-10-16.
+final_answer_rule: marker_line
+final_answer_rules_sensitivity: [strict]
+
+# Tokenbudget: lika för alla modeller. Tar budgeten slut räknas svaret som tekniskt bortfall (Ogiltigt). 8 000 (metodägarens beslut 2026-10-14)
+# höjt till 16 000 för alla prov och alla modeller (metodägarens beslut 2026-10-21); utvecklingskörningarna före Detaljer kördes med 8 000.
+max_tokens: 16000
+
+# Garderingsregel (METOD.md avsnitt 7 och 11). Huvudregeln ar simpleqa; `aa` anvands bara i kanslighetsanalys.
+#   simpleqa = "vet ej, men troligen X" ratas pa X (ratt X = Ratt, fel X = Fel)
+#   aa       = gardering med kandidat raknas som ej forsokt (Avstar)
+hedge_rule: simpleqa
+hedge_markers: [troligen, kanske, förmodligen, antagligen, "jag tror", "tror att", "vet ej", "vet inte", osäker]
+
+outcomes:
+  real: [Ratt, Delvis, Fel, Avstar, Ogiltigt]
+  fake: [korrekt avvisande, avstar, pahitt, ogiltigt]
+
+# Pahittade namn: korrekt beteende (metodägarens beslut 2026-10-14, ingen andring av prompten). Bade "VET EJ"/avstar och "finns inte"
+# (korrekt avvisande) raknas som korrekt beteende; det som ar fel ar pahitt (ett lan namnges) och ogiltigt (tekniskt bortfall eller
+# oklassat). Alla pahittade namn behalls i huvudanalysen, aven de som minst tva modeller svarade samma lan pa i pilot 2. Det
+# forregistrerade kanslighetsmattet "utan pilotsparrade pahittade namn" redovisas bredvid huvudmattet (metrics *_utan_sparrade, G9-variant).
+fake_behaviour:
+  correct_behaviour: [korrekt avvisande, avstar]
+  wrong_behaviour: [pahitt]
+  pilot_block:
+    rule: "ett pahittat namn ar sparrat om minst tva olika modeller pastar samma enda lan om det (utfall pahitt, entydig kandidat)"
+    min_models: 2
+    in_main_analysis: true       # namnen behalls och raknas som pahitt
+    sensitivity: "utan_sparrade"
+
+# Beslutstrappan (§2.5). Reglerna provas i den ordning de star; varje utfall utesluter de andra.
+# Rattaren anger regel-id per svar; ett test kontrollerar att id:na ar desamma som har.
+decision_ladder:
+  real:
+    - id: R0_empty
+      when: "svaret ar tomt"
+      outcome: Ogiltigt
+    - id: R1_technical
+      when: "tekniskt fel (api-fel, tomt svar vid length): omkorning hogst tva ganger, kvarstar det raknas Ogiltigt och redovisas per modell"
+      outcome: Ogiltigt
+    - id: R2a_match
+      when: "exakt en kandidat efter normalisering och alias-dedup, och den matchar facit med efterfragad precision (aven vid gardering)"
+      outcome: Ratt
+    - id: R2b_wrong_candidate
+      when: "en annan kandidat, flera kandidater dar nagon ar fel, eller annan entitetstyp an efterfragad"
+      outcome: Fel
+    - id: R2c_coarser_precision
+      when: "siffra med grovre precision an efterfragad (rattat tal avrundat till tusental nar heltal efterfragades)"
+      outcome: Delvis
+    - id: R2d_hedge_aa
+      when: "bara hedge_rule=aa: gardering med kandidat raknas som ej forsokt"
+      outcome: Avstar
+    - id: R3a_abstain
+      when: "ingen kandidat och uttryckligt vet ej eller osakerhet"
+      outcome: Avstar
+    - id: R3b_negated_only
+      when: "ingen kandidat men en nekad kandidat (\"det ar inte X\") eller vet ej tillsammans med nekad kandidat"
+      outcome: Fel
+    - id: R3c_short_free
+      when: "ingen kandidat, hogst 5 ord, ingen vagran: kort fritt svar utan kant namn"
+      outcome: Fel
+    - id: R3d_other
+      when: "ingen kandidat, vagran utan osakerhetsskal eller langre irrelevant text"
+      outcome: Ogiltigt
+  fake:
+    - id: F0_empty
+      when: "svaret ar tomt"
+      outcome: ogiltigt
+    - id: F1_reject_and_claim
+      when: "avvisar men pastar ocksa nagot (namnger lan/kommun utan forslagsformulering): blandat svar raknas som pahitt"
+      outcome: pahitt
+    - id: F2_reject
+      when: "sager att entiteten inte finns, utan att pasta nagot om den"
+      outcome: korrekt avvisande
+    - id: F3_suggest
+      when: "foreslar en riktig entitet (\"du kanske menar Osthammar\") utan pastaende"
+      outcome: korrekt avvisande
+    - id: F4_claim
+      when: "namnger ett lan eller en kommun, dvs pastar att entiteten finns"
+      outcome: pahitt
+    - id: F5_abstain
+      when: "vet ej"
+      outcome: avstar
+    - id: F6_short_free
+      when: "hogst 4 ord, ingen vagran: kort fritt svar behandlas som pastaende"
+      outcome: pahitt
+    - id: F7_other
+      when: "ovrigt"
+      outcome: ogiltigt
+
+numeric:
+  # Talregler (§2.5): ratt om svaret avrundat till angiven precision matchar facit; enheten ska stamma.
+  # Punkt tolkas som decimaltecken, mellanslag och hardmellanslag som tusentalsavgransare.
+  # Anvands inte av piloten (inga siffror); finns for kommande sifferfragor.
+  unit_conflicts:
+    invånare: [tusen, miljoner, miljon, procent, kronor, mkr, tkr]
+    kronor: [tusen, miljoner, miljon, procent, invånare, euro, dollar]
+    procent: [tusen, miljoner, miljon, kronor, invånare]
+
+levels:
+  # Last 2026-10-14 (metodägaren): STOPP for omdefiniering av niva 1-3. Grundnivaerna (1 och 2) ar beskrivande: de redovisas med
+  # konfidensintervall men har inget tak- eller golvkrav och ingar inte i huvudtalet. Huvudnivan ar niva 3; tak/golv galler den.
+  # Historik och skal: method/METHOD_CHANGELOG.md.
+  - id: "1"
+    role: descriptive
+    definition: "kommun till lan; grundniva, redovisas med KI, inget tak- eller golvkrav, ingar inte i huvudtalet"
+  - id: "2"
+    role: descriptive
+    definition: "tatorter under 1 500 invanare till kommun (lanet anges); grundniva, redovisas med KI, inget tak- eller golvkrav, ingar inte i huvudtalet"
+  - id: "3"
+    role: headline
+    definition: "smaorter till kommun (lanet anges); huvudniva, tak <= 90 procent och golv >= 30 procent galler"
+  - id: F
+    role: fake
+    definition: "pahittade kommunnamn (egen trappa, ingar inte i index eller traffsakerhet)"
+  - id: P
+    role: retired
+    definition: "endast i den första utvecklingskörningen: tatorter 1 500-10 000 invanare (pilotens gamla niva 2). Utgangen niva, analyseras inte"
+
+# Krav pa huvudnivan och regel for kommande prov (metodägarens beslut 2026-10-14). Kravet "tak pa niva 2-3" ar ersatt av
+# "tak/golv galler huvudnivan". "alla" i results.json och comparisons.json = huvudnivan (alla nivaer med role headline).
+level_policy:
+  decided: "2026-10-14"
+  ceiling_max_share: 0.90        # ingen modell far ligga over taket pa huvudnivan (punktskattning)
+  floor_min_best_share: 0.30     # den basta modellen ska na golvet pa huvudnivan
+  applies_to_role: headline
+  max_pilots_per_test_before_lock: 1
+  max_redefinitions_per_test_before_lock: 1
+  saturated_rule: "Mattas ett prov efter detta publiceras det som mattat, med dokumentation. Det konstrueras aldrig vidare."
+
+modes:
+  # Körlägen i huvudkörningen (metodägarens beslut 2026-10-16). Läge A (huvudläget, formulering A1) och B ställer varje
+  # fråga fyra gånger tillsammans: A tre gånger och B en gång. Omformuleringen A2 körs en gång på ett förregistrerat slumpurval om
+  # cirka 20 procent av frågorna. Läge A+ (Kalai) är struket. Motiveringarna per läge står i METOD.md avsnitt 9.
+  # Id:t A är huvudläget (formulering A1): resultat, titlar och presentation anger "läge A", så id:t byts inte mot "A1".
+  # Systemprompterna för A (formulering A1), A2 och B är förregistrerade här och godkända av metodägaren 2026-10-15 och 2026-10-16.
+  - id: A
+    repeats: 3
+    system_prompt: "Svara kort. Avsluta alltid med en sista rad på formen 'Svar: <ditt svar>'. Om du inte vet svaret, skriv 'Svar: VET EJ'."
+    note: "huvudläge, formulering A1, tre körningar per fråga (beslut 2026-10-16; tidigare en körning). Texten är godkänd av metodägaren 2026-10-15. Den första utvecklingskörningen körde en annan prompt utan markörrad. Rättad 2026-10-14: 'pa' -> 'på'. Den andra utvecklingskörningen körde den gamla texten med 'pa' (lagrad ordagrant i dess manifest) och en körning per fråga; inga svar omkördes."
+  - id: A2
+    repeats: 1
+    system_prompt: "Håll svaret kort. Den sista raden ska alltid vara 'Svar: ' följt av ditt svar. Vet du inte svaret skriver du 'Svar: VET EJ'."
+    note: "omformulering av läge A, en körning, bara för frågorna i urvalet nedan (texten godkänd av metodägaren 2026-10-16). Visar om resultatet beror på just formuleringen A1."
+    sample:
+      # Deterministiskt urval, förregistrerat: en fråga ingår om sha256(salt + ":" + fråge-id), de första 15 hextecknen läsna som tal
+      # delat med 16^15, är mindre än share. Gäller riktiga och påhittade frågor lika. Urvalet beror bara på fråge-id och saltet,
+      # aldrig på svar eller modell; funktionen är method.config.in_mode_sample. Andelen blir cirka 20 procent, inte exakt.
+      share: 0.20
+      salt: "aitestet-a2-urval-v1"
+  - id: B
+    repeats: 1
+    system_prompt: "Avsluta med en sista rad på formen 'Svar: <ditt svar>'."
+    note: "vanlig fråga, ingen instruktion om avstående, en körning per fråga (beslut 2026-10-16; tidigare tre; texten godkänd av metodägaren 2026-10-16)"
+
+# Matt (alla per modell, lage, niva, med 95 procent KI). Nollnamnare ger null (visas som "ej definierat"), aldrig 0.
+metrics:
+  - id: traffsakerhet
+    definition: "Ratt / riktiga"
+    undefined_if: "inga riktiga fragor"
+  - id: andel_delvis
+    definition: "Delvis / riktiga"
+  - id: andel_fel
+    definition: "Fel / riktiga"
+  - id: andel_avstar
+    definition: "Avstar / riktiga"
+  - id: andel_ogiltigt
+    definition: "Ogiltigt / riktiga"
+  - id: felandel
+    definition: "(Fel + ogiltigt) / riktiga; ogiltiga raknas som fel sa att skrapsvar inte sanker felandelen"
+  - id: precision_besvarade
+    definition: "Ratt / (ratt + delvis + fel)"
+    undefined_if: "modellen aldrig svarar (namnaren 0): ej definierat, aldrig 0 procent"
+  - id: index
+    definition: "100 * (ratt - fel) / riktiga; bara for jamforbarhet med AA, ingen titel"
+  - id: aa_kvot
+    definition: "Fel / (fel + delvis + avstar + ogiltigt); bara i radatan, visas inte pa sajten"
+    undefined_if: "namnaren 0"
+  - id: poang_p
+    definition: "100 * (ratt - p * fel) / riktiga for p i penalties; kanslighetsanalys"
+  - id: andel_korrekt_avvisande
+    definition: "korrekt avvisande / pahittade"
+  - id: andel_avstar_f
+    definition: "avstar / pahittade"
+  - id: andel_pahitt
+    definition: "pahitt / pahittade"
+  - id: andel_ogiltigt_f
+    definition: "ogiltigt / pahittade"
+  - id: andel_korrekt_beteende
+    definition: "(korrekt avvisande + avstar) / pahittade; bada rader raknas som korrekt beteende (beslut 2026-10-14), komplement till pahitt och ogiltigt"
+  - id: andel_pahitt_utan_sparrade
+    definition: "kanslighetsanalys: andel_pahitt utan pilotsparrade pahittade namn (fake_behaviour.pilot_block), redovisas bredvid huvudmattet"
+  - id: andel_korrekt_beteende_utan_sparrade
+    definition: "kanslighetsanalys: andel_korrekt_beteende utan pilotsparrade pahittade namn"
+  - id: formatbrott
+    definition: "andel svar utan giltig markorrad ('Svar: ...') av svar utan tekniskt bortfall; redovisas for alla modeller, i alla lagen (ocksa nar final_answer_rule inte ar marker_line)"
+    undefined_if: "alla svar ar tekniskt bortfall"
+  - id: tekniskt_bortfall
+    definition: "svar med technical_failure / alla svar (alla frågor); redovisas per modell"
+  - id: pris_per_ratt_usd
+    definition: "summa kostnad (USD) / antal ratt; ej definierat vid 0 ratt, aldrig billigast. I kronor: kostnad_per_ratt_sek"
+    undefined_if: "0 ratt"
+  - id: tokens_ut_median
+    definition: "median tokens ut per svar"
+  - id: tokens_ut_p90
+    definition: "90:e percentilen tokens ut per svar"
+  - id: tokens_ut_medel
+    definition: "summa tokens ut / antal svar (utdata, resonemangstokens inraknade); presentation.cost"
+  - id: kostnad_per_100_fragor_sek
+    definition: "summa kostnad (USD) / antal svar * 100 * presentation.cost.sek_per_usd; vad 100 stallda fragor kostade i testet"
+  - id: kostnad_per_ratt_sek
+    definition: "summa kostnad (USD) / antal ratt * presentation.cost.sek_per_usd; ej definierat vid 0 ratt, aldrig billigast"
+    undefined_if: "0 ratt"
+
+# Titelregler (§2.5). Ingen titel pa index eller AA-kvot. Titlar delas bara ut av G9 (claims_allowed.json).
+titles:
+  best_in_factprov:
+    label: "Bast i faktaprovet (lage A)"
+    mode: A
+    rule: "supported for BADE traffsakerhet (hogre) och felandel (lagre) mot varje annan modell"
+  joint_wording: "Traffsakerhet gynnar modeller som gissar, felandel gynnar modeller som avstar."
+  no_title_metrics: [index, aa_kvot]
+
+# Forregistrerade troskelvarden. Far inte justeras efter att resultat setts. [Rek.] = forslag fran bilaga 8.
+thresholds:
+  g04:
+    max_struck_share_per_template: 0.10      # [Rek.] over detta: BLOCK for mallen
+    fake_name_levenshtein_min: 3             # METOD.md avsnitt 6: minst tre redigeringssteg till alla riktiga namn (normalform, genitiv-s struket)
+    fake_name_trigram_min: 15                # uttalsbarhet: varje teckentrigram forekommer minst sa ofta i riktiga ortnamn
+    fake_name_affix_min_kommun: 4            # namnet far inte borja eller sluta pa ett riktigt kommunnamn (>= 4 tecken)
+    fake_name_affix_min_ort: 5               # ... eller ortnamn (>= 5 tecken)
+  g05:
+    golden_min_cases: 30
+    golden_required_pass_share: 1.0
+    differential_max_disagreement_share: 0.02   # kalibrerad mot den första utvecklingskörningen, ska om-kalibreras
+  g06:
+    technical_dropout_max: 0.05              # [Rek.] per modell
+    invalid_share_max: 0.10                  # [Rek.] aldrig over
+    invalid_share_sd_k: 3                    # [Rek.] +-3 standardavvikelser av ovriga modeller
+    invalid_share_sd_floor: 0.01             # eget val: SD-golv 1 procentenhet sa att nastan lika ovriga modeller inte ger hartriggad flagga
+    finish_length_warn: 0.05
+    empty_answer_warn: 0.05
+    format_violation_warn: 0.10              # WARN nar andelen svar utan giltig markorrad over gransen (redovisas alltid per modell)
+    temp0_subset_share: 0.10                 # krav utanfor development: 10 procent kors om vid temperatur 0
+  g07:
+    differential_max_disagreement_share: 0.02   # se g05
+  g08:
+    consensus_family_share: 0.5              # minst halften av familjerna (en rost per familj)
+    discrimination_corr_max: -0.2            # varning: negativ korrelation fraga vs modellens totalpoang
+    discrimination_min_models: 6
+    instability_min_families: 2              # kraver repeats >= 3
+  g09:
+    alpha: 0.05
+    ci_level: 0.95
+    min_effect: 0.05                         # 5 procentenheter
+    min_entity_clusters: 30                  # [Rek.] antal olika entiteter (oberoende fragor) i jamforelsen
+    min_county_clusters: 15                  # eget val 2026-10-14 (ersätter min_template_clusters = 2): minst 15 länskluster, av högst 21. metodägaren bekräftade värdet 2026-10-14
+    power: 0.80
+    penalties: [0.5, 1, 2]
+    hedge_rules: [simpleqa, aa]
+    primary_metrics: [traffsakerhet, felandel]
+    fake_metrics: [andel_pahitt]
+
+statistics:
+  # Dokumenterat i method/STATISTIK.md. Andrat 2026-10-14 (metodägaren): klustring pa lan (21 kluster) i stallet for pa fragemall x entitet.
+  # Skal: rho for mall ca 0 i bada piloterna, och fyra mallar gav df = 3 (MDE 12-41 pe). Mall ar kvar som lagrat attribut.
+  # Forregistrerat fore lasning; ingen korning har gjorts med den nya regeln fore beslutet.
+  clustering: "enkelvags pa lan (21 kluster), golv vid oklustrad varians; mall och entitet ar lagrade attribut och klustrar inte"
+  critical_value: "t med df = antal lankluster - 1"
+  family: "alla parvisa jamforelser inom lage x niva x matt, Holm over hela familjen"
+  boundary_ci: "Wilson (p = 0 eller 1: klustervarians odefinierad)"
+
+# Specifikation for fragegenerering (nivaroller last 2026-10-14, se levels och level_policy).
+question_generation:
+  levels: [1, 2, 3, F]
+  level_1: "kommun -> lan (grundniva, beskrivande, inte i huvudtalet)"
+  level_2: "tatort < 1 500 invanare -> kommun, lanet anges i fragan (grundniva, beskrivande, inte i huvudtalet)"
+  level_3: "smaort -> kommun, lanet anges i fragan (huvudniva)"
+  source_rule: "facit ska vara lika i tva oberoende kallor (G4); smaortsnamn finns bara i Wikidata, kommun och folkmangd verifieras mot SCB"
+  uniqueness: "hogst en fraga per entitet, mall och period"
+  retired_pilot_level: "pilotens niva 2 (tatort 1 500-10 000) ingar i den första utvecklingskörningen som niva P och analyseras inte"
+  fake_names:
+    generation: "kod, inte sprakmodell: stam + andelse ur riktiga ortnamn"
+    review: "AUTOMATISK existenskontroll i G4 (metodägaren granskar inte manuellt, beslut 2026-10-14)"
+    reject_if:
+      - "namnet eller dess normalform (genitiv-s struket) finns som etikett eller alias (sv, en) pa nagot Wikidata-objekt med land Sverige (SPARQL)"
+      - "namnet finns i Isofs ortnamnsregistret (API, CC BY) om det gar att na"
+      - "namnet finns i SCB- eller Wikidata-listorna som redan hamtats (kommun, tatort, smaort, historiska kommuner, socknar, forsamlingar, platser)"
+      - "Levenshtein < 3 till nagot riktigt namn, trigram under troskel, eller borjar/slutar pa ett riktigt namn"
+    log: "varje kontroll loggas per namn med kalla, resultat och tidsstampel i körningens fil fake_name_checks.json"
+
+# Delprov (metodägarens beslut 2026-10-20): Sverigeprovet och Språkprovet vid lansering. Namnen är delprovens namn i all
+# text; "delprov A/B" används inte (A är ett körläge). Allt ovan (levels, decision_ladder, statistics, question_generation) gäller
+# Sverigeprovet. Språkprovet har egna nivåer, egen trappa och egen klusterregel nedan; level_policy, modes, max_tokens,
+# final_answer_rule, route_policy, model_selection och metrics gäller båda (för Språkprovet utan Delvis, påhitt och felavdrag).
+subtests:
+  sverigeprovet:
+    name: Sverigeprovet
+    status: locked
+    description: "svensk faktakunskap: kommun, tätort och småort (nivå 1, 2 och 3) och påhittade kommunnamn (nivå F)"
+    levels: [1, 2, 3, F]
+    question_counts:
+      level_1: 40
+      level_2: 100
+      level_3: 400
+      level_F: 60
+    question_set: data/questions/sverigeprovet-1.0
+    clustering: "lan (statistics ovan)"
+  sprakprovet:
+    name: Språkprovet
+    # Version 2 (metodägarens beslut 2026-10-21): piloten 2026-10-20
+    # var mättad (alla 18 modeller över 90 procent). Huvudnivån är nu korrekturläsning av löpande SFS-text (nivå K); de enkla
+    # frågorna är kvar som beskrivande grundnivå (nivå G, tidigare S). Ny pilot: språkunderlagets andra pilot. Regeln om en pilot per prov
+    # tillämpas inte före lansering (metoden var inte publicerad, uppbyggnadsfas), men gäller efter lansering.
+    # Pilot 2 (2026-10-21): träffsäkerhet 62-97 procent på 110 stycken, 8 modeller över taket; förslag i pilotens redovisning
+    # metodägaren 2026-10-21: korrekturläsningen och de enkla frågorna ligger kvar som beskrivande nivåer; ingen mer pilot för Språkprovet.
+    status: pilot
+    description: "korrekt svensk skrift: korrekturläsning av löpande text (huvudnivå) och enkla frågor om böjning, genus, stavning, sär- och sammanskrivning och ordval (grundnivå); bara uppgifter med entydigt facit som rättas av kod (method/sprakprovet.py), ingen språkmodell rättar"
+    levels:
+      - id: K
+        role: descriptive
+        definition: "korrekturläsning: ett stycke på 60-120 ord ur SFS med 0-3 insatta fel; rätt = exakt rätt mängd rättelser; beskrivande nivå sedan 2026-10-21 (Lagprovet har huvudnivån), redovisas med KI, inget tak- eller golvkrav"
+      - id: G
+        role: descriptive
+        definition: "enkla frågor, en regel per fråga (17 regeltyper, pilotens nivå S); beskrivande grundnivå, redovisas med KI, inget tak- eller golvkrav"
+    planned_questions_main: 400
+    pilot_questions: 150
+    # Korrekturläsningen (nivå K). Systemprompten är godkänd av metodägaren 2026-10-21. Användarmeddelandet är "Text:" följt
+    # av stycket. Motivering i METOD.md avsnitt 7. Samma max_tokens, åtkomst och standardparametrar som övriga frågor.
+    proofreading:
+      system_prompt: "Du är korrekturläsare. Texten nedan kan innehålla noll, ett eller flera språkfel: stavfel, fel böjning, fel genus (en/ett), särskrivning av sammansatta ord eller fel ordval (de/dem, var/vart). Rätta bara sådana fel. Ändra inte stil, ordval, ordföljd, skiljetecken eller stor och liten bokstav. Skriv varje fel på en egen rad på formen: fel → rätt, där fel är ordet eller orden exakt som de står i texten. Avsluta med en sista rad 'Svar: KLART'. Om texten inte innehåller något fel, skriv bara raden 'Svar: INGA FEL'."
+      passage_words: [60, 120]
+      errors_per_passage: [0, 1, 2, 3]
+      one_passage_per_document: true
+      source: "SFS från 2010, data.riksdagen.se; fri enligt 1 kap. 9 § upphovsrättslagen; Källa: Sveriges riksdag"
+      error_types: [bojning, genus, stavning, sarskrivning, de_dem, var_vart]
+      metrics: [traffsakerhet, andel_delvis, andel_fel, andel_ogiltigt, falsklarm_andel_utan_fel, falsklarm_per_stycke, funna_fel_andel, formatbrott, tekniskt_bortfall]
+      decision_ladder:
+        - id: K0_empty
+          when: "svaret är tomt"
+          outcome: Ogiltigt
+        - id: K1_technical
+          when: "tekniskt fel som kvarstår efter två omkörningar, eller att tokenbudgeten tog slut"
+          outcome: Ogiltigt
+        - id: K2a_exact
+          when: "modellens rättelsepar är exakt facits (som multimängd); för stycken utan fel: inga par"
+          outcome: Ratt
+        - id: K2b_partial
+          when: "minst ett par stämmer med facit men inte exakt mängden (missade fel eller extra par)"
+          outcome: Delvis
+        - id: K3_wrong
+          when: "inget par stämmer: alla fel missade, eller bara falsklarm"
+          outcome: Fel
+        - id: K4_other
+          when: "ingen markörrad, inga rättelserader och ingen fras 'inga fel': längre fri text"
+          outcome: Ogiltigt
+    # Körlägen i Språkprovets huvudkörning: läge A tre gånger per stycke och fråga; B och A2 körs inte i 1.0 (metodägaren 2026-10-21, om inte
+    # piloten visar skäl till annat). Piloterna körde läge A en gång.
+    modes:
+      A: 3
+    rule_types:
+      - id: bojning_verb_preteritum
+        area: böjning
+        answer_type: form
+      - id: bojning_verb_supinum
+        area: böjning
+        answer_type: form
+      - id: bojning_subst_plural_obestamd
+        area: böjning
+        answer_type: form
+      - id: bojning_subst_plural_bestamd
+        area: böjning
+        answer_type: form
+      - id: bojning_adj_neutrum
+        area: böjning
+        answer_type: form
+      - id: bojning_adj_komparativ
+        area: böjning
+        answer_type: form
+      - id: genus
+        area: genus
+        answer_type: word
+      - id: stavning_dubbelteckning
+        area: stavning
+        answer_type: choice
+      - id: stavning_sje_ljud
+        area: stavning
+        answer_type: choice
+      - id: stavning_j_ljud
+        area: stavning
+        answer_type: choice
+      - id: stavning_tje_ljud
+        area: stavning
+        answer_type: choice
+      - id: stavning_vokal
+        area: stavning
+        answer_type: choice
+      - id: skrivning_sammansattning
+        area: sär- och sammanskrivning
+        answer_type: choice
+      - id: skrivning_forkortning
+        area: sär- och sammanskrivning
+        answer_type: choice
+      - id: skrivning_siffra
+        area: sär- och sammanskrivning
+        answer_type: choice
+      - id: ordval_de_dem
+        area: ordval
+        answer_type: word
+      - id: ordval_var_vart
+        area: ordval
+        answer_type: word
+    # Beslutstrappan för Språkprovet (method/sprakprovet.py anger id:t per svar; ett test kontrollerar att id:na är desamma).
+    decision_ladder:
+      - id: S0_empty
+        when: "svaret (markörradens text, annars hela texten) är tomt efter normalisering"
+        outcome: Ogiltigt
+      - id: S1_technical
+        when: "tekniskt fel som kvarstår efter två omkörningar, eller att tokenbudgeten tog slut (som R1)"
+        outcome: Ogiltigt
+      - id: S2a_match
+        when: "exakt en kandidat och den är en godkänd form, rätt bokstav eller alternativets text, eller rätt ord ur listan"
+        outcome: Ratt
+      - id: S2b_wrong
+        when: "en annan form, bokstav eller ett annat ord ur listan, flera kandidater, eller bokstav och text som pekar på olika alternativ"
+        outcome: Fel
+      - id: S3a_abstain
+        when: "ingen kandidat och uttryckligt vet ej eller osäkerhet"
+        outcome: Avstar
+      - id: S3b_short_free
+        when: "ingen kandidat, högst 5 ord: kort fritt svar"
+        outcome: Fel
+      - id: S3c_other
+        when: "ingen kandidat, längre text"
+        outcome: Ogiltigt
+    normalization: "gemener; markdown, citattecken och omgivande skiljetecken bort; blanksteg hopdragna; å ä ö é och bindestreck behålls; för form också avslutande parentes bort och ett inledande hjälpord (en, ett, den, det, de, har, hade, att, är, var, blir, mer, mest)"
+    sources:
+      - id: saldo
+        name: "SALDO-morfologi (saldom.xml), Språkbanken Text, Göteborgs universitet"
+        license: "CC BY 4.0"
+        use: "ordformer, genus, ordlista för felstavningskontroll, sammansättningar och förkortningsord"
+      - id: wikidata
+        name: "Wikidata, svenska lexem"
+        license: "CC0 1.0"
+        use: "andra källa: samma form, samma genus, ordet finns"
+      - id: egen
+        name: "egen text (Satori ML AB): mallmeningar för de/dem och var/vart, efterled för siffersammansättningar"
+        license: "egen"
+        use: "meningar och efterled; facit följer av den förregistrerade regeln"
+      - id: regel
+        name: "skrivregler och grammatik (fakta)"
+        license: "ej skyddat; ingen text kopierad"
+        use: "bindestreck vid förkortning och siffra, de/dem, var/vart"
+    excluded_sources: "SAOL, Svensk ordbok och andra skyddade ordlistor används inte och kopieras inte"
+    # Klusterregel för delprov utan län (STATISTIK.md, avsnittet om Språkprovet). Beslutet fattas en gång på pilotens data och skrivs
+    # in här före huvudkörningen; det ändras inte efter att huvudkörningens svar finns.
+    clustering:
+      candidate_key: rule_type
+      rule: "klustra på regeltyp om pilotens rho för regeltyp (ICC(1), ANOVA-skattning, frågans medelträff över modeller i läge A, grupper = regeltyp) är större än 0; annars är frågan enheten (oklustrad varians, df = n - 1). Golvet vid oklustrad varians gäller i båda fallen."
+      threshold: 0.0
+      decided_on: pilot
+      # Beslut enligt regeln 2026-10-20, på språkunderlagets första pilot (150 frågor, 18 modeller, 2 700 svar): rho för regeltyp = -0,0074
+      # (17 grupper), alltså inte > 0, och frågan är enheten. Fattat före huvudkörningen; ändras inte efter att dess svar finns.
+      decision: question
+      pilot_rho: -0.0074
+    # Nivå K: ett stycke per författning, så styckena är oberoende och stycket är enheten (ingen klustring, df = n - 1). Klusterregeln
+    # ovan gäller grundnivån G.
+    proofreading_unit: passage
+    min_clusters: 15
+    min_questions: 30
+
+# Lagprovet (metodägarens idé och beslut 2026-10-21): ett stycke ur gällande svensk författning (konsoliderad text, data.riksdagen.se) med 0 eller 1
+# ändring av innebörden insatt av kod; modellen ska avgöra om stycket stämmer med gällande lydelse och i så fall vad som är ändrat.
+# Byggs av kod enligt reglerna nedan och rättas av method/lagprovet.py. Motivering och regler i METOD.md.
+lagprovet:
+  name: Lagprovet
+  # Pilot 2026-10-21 (kombinerad variant): bara 24 av 100 stycken hann köras av alla modeller inom 12 USD; innehåll 38-88
+  # procent (tak och golv uppfyllda), falsklarm på felfria stycken 32 procent. Huvudkörningen godkänd av metodägaren 2026-10-21.
+  status: locked
+  levels:
+    - id: L
+      role: headline
+      definition: "ett stycke (en paragraf, 20-150 ord) ur gällande författning, oförändrat eller med en ändring av innebörden; rätt = rätt besked och vid ändring rätt ställe och rätt lydelse; tak <= 90 procent och golv >= 30 procent gäller"
+  pilot_questions: 100
+  planned_questions_main: 400
+  share_unchanged_min: 0.30
+  change_types: [tal, hanvisning, modal, negation, aktor, tid_villkor]
+  selection: "inte ändrad de senaste tre åren: ändringsnotis med årtal 2022 eller tidigare, eller ingen notis och grundförfattningen utfärdad 2023-10-21 eller tidigare; högst 3 stycken per känd lag och 1 per övrig författning; spärrlistan gäller"
+  fame: "kand = vanliga lagar för företag (lagprovet_sources.KNOWN, 22 lagar), svans = övriga författningar; redovisas var för sig"
+  unit: passage
+  # Huvudkörningen (metodägaren 2026-10-21): läge A en körning per stycke, plus upprepningsurvalet nedan.
+  modes:
+    A: 1
+  main:
+    set: data/questions/detaljer-1.0
+    run_id: detaljer-hosten-2026
+    edition: "AI-testet, hösten 2026"
+    n_main: 200
+    balance: "50 per kategori (inga fel, bara innehåll, bara språk, båda) och inom varje kategori 25 kända lagar och 25 övriga författningar"
+    exclude: "inget stycke (författning och paragraf) och ingen övrig författning från piloten"
+    per_known_law_max: 8
+    per_other_document_max: 1
+    second_source: "stycket ska finnas ordagrant (efter normalisering av blanksteg) i lagen.nu:s konsoliderade text för samma författning"
+    areas: [HR/arbetsrätt, ekonomi/skatt/redovisning, bolags- och handelsrätt, offentlig sektor/förvaltning, övrigt]
+    area_rule: "kända lagar enligt fast tabell (build_lagprovet_main.AREA_KNOWN); övriga enligt departement i dokumenthuvudet och nyckelord i rubriken (area_of)"
+    repeat_sample:
+      n: 40
+      salt: "aitestet-detaljer-upprepning-v1"
+      rule: "de 40 huvudstycken vars sha256(salt + ':' + fråge-id) är lägst körs en gång till (repeat 1); stabiliteten redovisas som andel lika utfall per modell"
+    recent:
+      n: 50
+      role: descriptive
+      selection: "paragrafer med ändringsnotis 2023, 2024 eller 2025 (ändrade för cirka 1-3 år sedan), 25 kända och 25 övriga (fylls från den andra gruppen om en tar slut), varannan med en innehållsändring, inga språkfel, högst 8 per känd lag och 2 per övrig författning och inga övriga författningar från huvudmängden; tvåkällskontroll som ovan"
+      key: "gällande lydelse"
+      previous_wording: "lagen.nu:s konsolidering närmast före ändringen, det stycke som liknar gällande lydelse mest (SequenceMatcher >= 0,6); previous_pair = paret gällande -> tidigare lydelse"
+      metric: "återställning = andel svar där modellens rätta lydelse (höger sida i ett innehållspar) finns i den tidigare lydelsen men inte i den gällande (modellen rättar tillbaka); previous_similarity redovisas per stycke; allt separat, inte i huvudtalet"
+    cost_cap_usd: 140
+  # Systemprompt för varianten med bara innehåll (inte vald, används inte i huvudkörningen). Användarmeddelandet: "Författning: ...", "Bestämmelse: ...", "Stycke:" och texten.
+  system_prompt: "Du får ett stycke ur en svensk författning med författningens rubrik och paragraf. Stycket är antingen återgivet ordagrant enligt gällande lydelse, eller så är exakt en sak ändrad så att innebörden blir en annan, till exempel ett tal, en paragrafhänvisning, ska eller får, en negation, en myndighet eller aktör, eller senast och tidigast. Språket är i övrigt korrekt. Om något är ändrat, skriv en rad på formen: ändrat: <texten som den står i stycket> → <gällande lydelse>, och avsluta med en sista rad 'Svar: ÄNDRAT'. Om stycket stämmer med gällande lydelse, skriv bara 'Svar: STÄMMER'. Om du inte vet, skriv 'Svar: VET EJ'."
+  # Vald variant (metodägaren 2026-10-21): kombinerad. Samma stycken; i hälften läggs också 1-2 språkfel in (böjning, stavning,
+  # särskrivning, de/dem), balanserat: inga fel, bara innehåll, bara språk, båda (25 procent var). Innehåll = huvudmått, språk = beskrivande.
+  # Varianten med bara innehåll (system_prompt ovan) finns kvar och kan köras med build_lagprovet --variant innehall.
+  variant: kombi
+  # Systemprompt för den kombinerade varianten: godkänd av metodägaren 2026-10-21.
+  system_prompt_kombi: "Du får ett stycke ur en svensk författning med författningens rubrik och paragraf. Stycket kan avvika från gällande lydelse på två sätt. Innehåll: högst en sak kan vara ändrad så att innebörden blir en annan, till exempel ett tal, en paragrafhänvisning, ska eller får, en negation, en myndighet eller aktör, eller senast och tidigast. Språk: det kan finnas upp till två språkfel, till exempel stavfel, fel böjning, särskrivning eller de/dem. Skriv varje avvikelse på en egen rad, antingen 'innehåll: <texten som den står i stycket> → <gällande lydelse>' eller 'språk: <fel> → <rätt>'. Ändra inte stil, ordföljd, skiljetecken eller stor och liten bokstav. Om du inte vet om innehållet stämmer, skriv raden 'innehåll: VET EJ'. Avsluta med en sista rad 'Svar: KLART'. Om stycket stämmer med gällande lydelse och inte har några språkfel, skriv bara 'Svar: STÄMMER'."
+  categories: [inga_fel, bara_innehall, bara_sprak, bada]
+  lang_error_types: [bojning, stavning, sarskrivning, de_dem]
+  metrics: [traffsakerhet, andel_delvis, falsklarm_andel_oforandrade, upptackt_andel_andrade, andel_avstar, andel_ogiltigt, formatbrott, tekniskt_bortfall, kallfel_konsensus, sprak_traffsakerhet, sprak_falsklarm_per_stycke, upptackt_med_och_utan_sprakfel]
+  decision_ladder:
+    - id: L0_empty
+      when: "svaret är tomt"
+      outcome: Ogiltigt
+    - id: L1_technical
+      when: "tekniskt fel som kvarstår efter två omkörningar, eller att tokenbudgeten tog slut"
+      outcome: Ogiltigt
+    - id: L2a_exact
+      when: "oförändrat stycke: inget ändringspåstående och inte VET EJ; ändrat stycke: exakt facits par och inget annat"
+      outcome: Ratt
+    - id: L2b_partial
+      when: "ändrat stycke: facits par plus andra par, eller rätt ställe (samma fel-sida) men fel lydelse"
+      outcome: Delvis
+    - id: L3_wrong
+      when: "ändrat stycke: STÄMMER eller bara andra par"
+      outcome: Fel
+    - id: L3b_false_alarm
+      when: "oförändrat stycke: modellen påstår en ändring (falsklarm)"
+      outcome: Fel
+    - id: L4_abstain
+      when: "VET EJ utan ändringspåstående"
+      outcome: Avstar
+    - id: L5_other
+      when: "ingen markörrad, inget par och ingen av fraserna stämmer/vet ej"
+      outcome: Ogiltigt
+
+# Namn och delar (metodägarens beslut 2026-10-21). Testet heter AI-testet; varje upplaga heter till exempel "AI-testet, hösten 2026".
+# Testet delas upp i delar efter vad som mäts. Visningsnamnen står här; interna id (lagprovet, sverigeprovet, sprakprovet) är oförändrade.
+# Inget sammanvägt totalresultat förrän en viktningsregel är förregistrerad (aggregate: null); fram till dess redovisas resultat per del.
+test_name: AI-testet
+edition_name_pattern: "AI-testet, <säsong> <år>"
+parts:
+  - id: detaljer
+    name: Detaljer
+    question: "Märker AI:n när något är fel i en text? Mätt på svensk lagtext"
+    internal_id: lagprovet
+    note: "kombinerad variant; innehåll är huvudmått, språk beskrivande"
+  - id: sverige
+    name: Sverige
+    question: "Vet AI:n eller hittar den på?"
+    internal_id: sverigeprovet
+    note: "körs senare (cirka 1-2 månader efter Detaljer)"
+  - id: kostnad
+    name: Kostnad
+    question: null
+    internal_id: uppgifter
+    note: "uppgiftsmätningen (kostnadskalkylatorn); beskrivs och mäts separat"
+descriptive_material:
+  sprakprovet: "korrekturläsning och enkla frågor: beskrivande underlag till Detaljer eller utvecklingsdata, ingen egen del"
+aggregate: null
+
+# Rattarvalidering (AVVIKELSE FRAN METOD 1.0, beslut metodägaren 2026-10-14).
+# Den ursprungliga planen kraver minst 200 pilotsvar markta av tva svenskspraktiga manniskor med kappa per modellfamilj och svarsstil.
+# Ersatts av: rattare A (huvudrattaren) och rattare B (oberoende referensrattare) ratar ALLA svar; manniskan markar ALLA A/B-skillnader
+# plus ett stratifierat slumpurval om 30 ur enigheterna (per modellfamilj och niva), totalt hogst 50 poster. Andra bedomare ar en
+# blind jury av tre sprakmodeller fran icke-Anthropic-familjer i stallet for en andra manniska (API-anropet ar stubbat i
+# version 1.0). Det som gar forlorat: gemensamma fel dar bade A och B har fel pa samma satt fangas bara av de 30 enigt
+# ratade posterna; noll fel i 30 ger en ovre 95-procentig grans pa cirka 10 procent (1 - 0,05^(1/30) = 9,5 procent). Det finns ingen
+# andra manniska, sa kappa mellan manniskor kan inte beraknas; kappa redovisas mellan manniska och A, manniska och B samt manniska och jury.
+validation:
+  deviates_from: "Metod 1.0 §2.5 (tva manniskor, minst 200 svar)"
+  agreement_sample_size: 30
+  max_items: 50
+  stratify_by: [model_family, level]
+  seed: 20261014
+  jury:
+    blind: true
+    families: [openai, google, mistral]     # tre icke-Anthropic-familjer
+    prompt_file: jury_prompt.md
+  zero_errors_upper_bound_95: 0.0950
+
+# Atkomstvag (metodägarens beslut 2026-10-14, ersatter tidigare krav pa direkt-API): ALLA modeller kors via OpenRouter, last till
+# forstapartsleverantoren (provider.order = [leverantor]), allow_fallbacks false och data_collection deny. Faktisk leverantor
+# (provider_actual) och returnerat modell-id loggas per anrop; avviker provider_actual fran den last leverantoren ar det HOLD i G6.
+# Direkt-API ar inte obligatoriskt.
+# Undantagslista (försiktighetslista, förregistrerad): modeller från leverantörer som vi i förväg behandlar som om de kan träna på
+# inskickade data, och vars förstapartsväg inte tar emot data_collection deny. I version 1.0 står DeepSeek på listan. Listan är ett
+# försiktighetsval och inget påstående om vad leverantörens villkor säger: någon källa för det finns inte i data/sources.
+# Modellerna körs via en namngiven tredjepartsleverantör i full precision med allow_fallbacks false och data_collection deny, och
+# leverantörskänslighet körs på minst två leverantörer.
+# Valfritt (inte krav): en engangskontroll OpenRouter mot leverantorens direkt-API for hogst tva leverantorer, nar metodägaren skapat
+# direktnycklar; ENDAST offentliga fragor, TOST +-5 pe.
+route_policy:
+  default:
+    route: openrouter
+    provider_order: first_party
+    allow_fallbacks: false
+    data_collection: deny
+    log: [provider_actual, model_returned]
+    provider_mismatch: HOLD
+  training_on_inputs_vendors: [deepseek]
+  requirements:
+    third_party_named: true
+    precision: full
+    allow_fallbacks: false
+    data_collection: deny
+    min_providers_sensitivity: 2
+  equivalence_check:
+    status: optional
+    scope: public_questions_only
+    via: vendor_direct_api
+    test: TOST
+    margin: 0.05
+    max_vendors: 2
+    note: "valfri engangskontroll nar direktnycklar finns; privata fragor skickas aldrig till leverantorens eget API"
+
+# Modellurval (metodägarens beslut 2026-10-20). Regeln är förregistrerad och står också i METOD.md avsnitt 3. Den tillämpas
+# på OpenRouters katalog och leverantörernas endpoints den dag som står i catalog_date; underlaget (rått, med sha256) ligger i
+# catalog_evidence och kontrolleras av kod. Listan ändras bara genom en ny metodversion.
+#   Regel 1 (Anthropic, OpenAI, Google): alla aktuella allmänna textmodeller i leverantörens huvudlinje, en per nivå (snabb, mellan,
+#            topp, och en högsta nivå när leverantören har en sådan), i senaste versionen, plus den mest kapabla modellen i den sista
+#            versionen av förra generationen. Varianter av samma modell räknas inte som egna modeller: pro-läge (samma modell med mer
+#            resonemang), batch, flex/fast/priority, bild- och kodvarianter.
+#   Regel 2 (övriga leverantörer): leverantörens flaggskepp, alltså den mest kapabla allmänna textmodellen i senaste versionen.
+#            En dyrare SKU av samma modell (till exempel "prime", högre genomströmning) räknas inte som ett annat flaggskepp.
+#   Tillägg utanför regeln, redovisas öppet: en modell som inte väljs av regeln får läggas till med skäl i `note`, märkt
+#            basis: open_addition. Den körs och jämförs som alla andra men redovisas som tillägg.
+# Åtkomst per modell: provider = låst förstapartsleverantör i provider.order (route_policy.default), med undantag enligt
+# route_policy.training_on_inputs_vendors (DeepSeek via Parasail, fp8, som i pilot 2). provider_names = de leverantörsnamn som
+# OpenRouter förväntas ange i svaren (deklarerade i förväg; avvikelse = HOLD i G6).
+model_selection:
+  decided: "2026-10-20"
+  catalog_date: "2026-10-20"
+  catalog_evidence: data/modellurval/2026-10-20
+  also_fetched: [openai/gpt-5.5, google/gemini-3.5-flash-lite]
+  # Avgjort 2026-10-21 (metodägaren): gpt-5.6-sol som OpenAI:s förra generation, Gemini 3.5 Flash-Lite ingår inte (Flash är Googles snabba nivå).
+  open_questions: []
+  models:
+    - id: anthropic/claude-fable-5.1
+      vendor: Anthropic
+      family: Anthropic
+      provider: anthropic
+      provider_names: [Anthropic]
+      precision: n/a
+      tier: "högsta nivån (Fable)"
+      basis: rule
+      note: null
+    - id: anthropic/claude-opus-5.5
+      vendor: Anthropic
+      family: Anthropic
+      provider: anthropic
+      provider_names: [Anthropic]
+      precision: n/a
+      tier: "topp (Opus)"
+      basis: rule
+      note: null
+    - id: anthropic/claude-sonnet-5.5
+      vendor: Anthropic
+      family: Anthropic
+      provider: anthropic
+      provider_names: [Anthropic]
+      precision: n/a
+      tier: "mellan (Sonnet)"
+      basis: rule
+      note: null
+    - id: anthropic/claude-haiku-5.5
+      vendor: Anthropic
+      family: Anthropic
+      provider: anthropic
+      provider_names: [Anthropic]
+      precision: n/a
+      tier: "snabb (Haiku)"
+      basis: rule
+      note: null
+    - id: anthropic/claude-opus-4.8
+      vendor: Anthropic
+      family: Anthropic
+      provider: anthropic
+      provider_names: [Anthropic]
+      precision: n/a
+      tier: "förra generationen, sista versionen (Claude 4.8)"
+      basis: rule
+      note: null
+    - id: anthropic/claude-opus-4.5
+      vendor: Anthropic
+      family: Anthropic
+      provider: anthropic
+      provider_names: [Anthropic]
+      precision: n/a
+      tier: "äldre version"
+      basis: open_addition
+      note: "Diskuteras mycket i forum; inte vald av regeln. Öppet redovisat tillägg (metodägaren 2026-10-20)."
+    - id: openai/gpt-6-astra
+      vendor: OpenAI
+      family: OpenAI
+      provider: openai
+      provider_names: [OpenAI]
+      precision: n/a
+      tier: "topp (Astra)"
+      basis: rule
+      note: null
+    - id: openai/gpt-6.1-sol
+      vendor: OpenAI
+      family: OpenAI
+      provider: openai
+      provider_names: [OpenAI]
+      precision: n/a
+      tier: "mellan (Sol)"
+      basis: rule
+      note: null
+    - id: openai/gpt-6-luna
+      vendor: OpenAI
+      family: OpenAI
+      provider: openai
+      provider_names: [OpenAI]
+      precision: n/a
+      tier: "snabb (Luna)"
+      basis: rule
+      note: null
+    - id: openai/gpt-5.6-sol
+      vendor: OpenAI
+      family: OpenAI
+      provider: openai
+      provider_names: [OpenAI]
+      precision: n/a
+      tier: "förra generationen, sista versionen (GPT-5.6, flaggskeppet Sol)"
+      basis: rule
+      note: "Inte openai/gpt-5.5: katalogen visar GPT-5.6 (2026-07-09) som en senare version av generation 5 än GPT-5.5 (2026-04-24), och regeln pekar då på GPT-5.6 Sol, seriens flaggskepp. Bekräftat av metodägaren 2026-10-21."
+    - id: google/gemini-4-argon
+      vendor: Google
+      family: Google
+      provider: google-ai-studio
+      provider_names: [Google AI Studio]
+      precision: n/a
+      tier: "topp (Gemini 4 Argon)"
+      basis: rule
+      note: null
+    - id: google/gemini-3.8-flash
+      vendor: Google
+      family: Google
+      provider: google-ai-studio
+      provider_names: [Google AI Studio]
+      precision: n/a
+      tier: "snabb (Flash, senaste versionen)"
+      basis: rule
+      note: "Generation 4 har ännu ingen Flash-modell; 3.8 Flash är Googles aktuella Flash. Flash-Lite ingår inte (metodägaren 2026-10-21)."
+    - id: google/gemini-3.1-pro-preview
+      vendor: Google
+      family: Google
+      provider: google-ai-studio
+      provider_names: [Google AI Studio]
+      precision: n/a
+      tier: "förra generationen, sista versionen (Gemini 3.1 Pro)"
+      basis: rule
+      note: "Finns bara som preview; ingen allmänt tillgänglig 3.x Pro i katalogen."
+    - id: x-ai/grok-4.7
+      vendor: xAI
+      family: xAI
+      provider: xai
+      provider_names: [xAI]
+      precision: n/a
+      tier: flaggskepp
+      basis: rule
+      note: null
+    - id: mistralai/mistral-large-4-0
+      vendor: Mistral
+      family: Mistral
+      provider: mistral
+      provider_names: [Mistral]
+      precision: n/a
+      tier: flaggskepp
+      basis: rule
+      note: null
+    - id: deepseek/deepseek-v4-pro-0813
+      vendor: DeepSeek
+      family: DeepSeek
+      provider: parasail/fp8
+      provider_names: [Parasail]
+      precision: fp8
+      tier: flaggskepp
+      basis: rule
+      note: "Undantagslistan (route_policy): namngiven tredjepart Parasail, fp8, som i pilot 2; leverantörskänslighet på Novita (fp8)."
+    - id: qwen/qwen3.8-max-0902
+      vendor: Alibaba (Qwen)
+      family: Alibaba (Qwen)
+      provider: alibaba
+      provider_names: [Alibaba]
+      precision: n/a
+      tier: flaggskepp
+      basis: rule
+      note: "qwen3.8-max-prime är en dyrare SKU av samma modell (högre genomströmning) och räknas inte som eget flaggskepp."
+    - id: moonshotai/kimi-k3
+      vendor: Moonshot (Kimi)
+      family: Moonshot (Kimi)
+      provider: moonshotai
+      provider_names: [Moonshot AI]
+      precision: n/a
+      tier: flaggskepp
+      basis: rule
+      note: null
+
+# Publiceringspolicy (metodägarens beslut 2026-10-14). Ersätter kravet på förhandsvarsel till leverantörer (varsel minst 24 timmar före
+# publicering) med rättelser i efterhand. Alla leverantörer behandlas lika. Sakfel kan anmälas till rättelseadressen när som helst
+# och rättas öppet enligt rättelsereglerna (METOD.md avsnitt 14). Ett svar från en leverantör (genmäle) publiceras i sin helhet,
+# men ger ingen rätt att påverka frågor, regler eller resultat. Grind G13 kontrollerar policyn deterministiskt (fail-closed: saknas
+# policyn eller har den ett okänt värde blockeras publiceringen).
+#   notice_policy: corrections_after = inget förhandsvarsel; rättelseadress, rättelselogg och genmäle ska synas på sajten
+#                  advance_notice    = förhandsvarsel enligt notice_log.yaml (minst 24 timmar före). Koden finns kvar så att det går
+#                                      att slå på igen, men används inte nu.
+publication:
+  notice_policy: corrections_after
+  corrections_email: hej@aitestet.se
+  right_of_reply: publish_in_full
+
+# Presentation av resultatöversikten (metodägarens beslut 2026-10-15). Ändrar inte vad som mäts, vilka jämförelser som är stödda eller titelregeln:
+# "Bäst i faktaprovet (läge A)" delas fortfarande bara ut enligt titles.best_in_factprov.
+#   sort_by/sort_order: modellerna visas efter träffsäkerhet (punktskattningen) i läge A på huvudnivån, högst först; felandelen visas bredvid.
+#   tie_rule: rank_range_supported = varje modell får placeringen [1 + B, N - W], där B är antalet modeller som är statistiskt säkert
+#             bättre och W antalet som är statistiskt säkert sämre på sort_by-måttet (jämförelse med supported och sensitivity_ok i
+#             comparisons.json, samma läge och nivå), och N är antalet modeller. Modeller vars skillnad inte är stödd får överlappande
+#             placering, till exempel "1-4". En modell utan någon stödd jämförelse får hela intervallet och "går inte att placera".
+#             En modell som G6 har satt i väntan (HOLD) jämförs inte av G9 (model_held i comparisons.json) och får ingen placering
+#             ("ej jämförd"); N räknar bara de jämförda modellerna. Samma regel används för felandelen (lägre är bättre) på modellsidorna.
+#   cost: vad det faktiskt kostade i testet, räknat av kod ur körningens loggade tokens och kostnad (answers.jsonl: tokens_out, cost_usd).
+#         Påverkar inte rättning, jämförelser eller titlar. En modell med högre pris per token kan bli billigare om den använder färre tokens.
+#           tokens_ut_medel            = summa tokens ut / antal svar (utdata, resonemangstokens inräknade)
+#           kostnad_per_100_fragor_sek = summa kostnad (USD) / antal svar * 100 * sek_per_usd
+#           kostnad_per_ratt_sek       = summa kostnad (USD) / antal rätta svar * sek_per_usd (ej definierat vid 0 rätt)
+#         sek_per_usd är Riksbankens kurs (SEKUSDPMI) den dag som står i fx_date, samma kurs som prissidan, fast så att beloppen går att räkna om.
+presentation:
+  sort_by: traffsakerhet
+  sort_order: descending
+  shown_next_to: [felandel]
+  mode: A
+  level: alla
+  tie_rule: rank_range_supported
+  title_rule_unchanged: true
+  cost:
+    metrics: [tokens_ut_medel, kostnad_per_100_fragor_sek, kostnad_per_ratt_sek]
+    sek_per_usd: "9.96695"
+    fx_date: "2026-10-14"
+    fx_source: riksbanken-sekusd
